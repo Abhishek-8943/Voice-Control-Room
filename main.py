@@ -1,40 +1,15 @@
-"""
-============================================================================
-VOICE ASSISTANT TRAINING NOTEBOOK - GOOGLE COLAB
-============================================================================
-Complete training pipeline for speech command recognition
-Run this entire notebook in Google Colab from top to bottom
-
-Instructions:
-1. Copy this entire code into a new Google Colab notebook
-2. Run all cells sequentially (Runtime → Run all)
-3. Download the generated files when prompted
-4. Place files in your local project's model/ folder
-============================================================================
-"""
-
-# ============================================================================
-# CELL 1: Install Required Packages
-# ============================================================================
 print("=" * 70)
 print("STEP 1: Installing Required Packages")
 print("=" * 70)
 !pip install -q librosa tensorflow scikit-learn
 print("✅ All packages installed successfully!\n")
 
-# ============================================================================
-# CELL 2: Mount Google Drive
-# ============================================================================
 print("=" * 70)
 print("STEP 2: Mounting Google Drive")
 print("=" * 70)
 from google.colab import drive
 drive.mount('/content/drive')
 print("✅ Google Drive mounted successfully!\n")
-
-# ============================================================================
-# CELL 3: Import All Required Libraries
-# ============================================================================
 print("=" * 70)
 print("STEP 3: Importing Libraries")
 print("=" * 70)
@@ -55,14 +30,12 @@ warnings.filterwarnings('ignore')
 
 print("✅ All libraries imported successfully!\n")
 
-# ============================================================================
-# CELL 4: Configure Dataset Path
-# ============================================================================
+# Configuration of Dataset Path
+
 print("=" * 70)
 print("STEP 4: Configuring Dataset Path")
 print("=" * 70)
 
-# Set your dataset base path here
 BASE_PATH = "/content/drive/MyDrive/Speech Commands Dataset"
 
 print(f"Dataset base path: {BASE_PATH}")
@@ -77,9 +50,7 @@ else:
 
 print()
 
-# ============================================================================
-# CELL 5: Auto-Detect Dataset Folders
-# ============================================================================
+
 print("=" * 70)
 print("STEP 5: Searching for .wav Files")
 print("=" * 70)
@@ -102,7 +73,6 @@ def find_wav_folders(root_path):
 
     return wav_folders
 
-# Find all folders with wav files
 wav_folders = find_wav_folders(BASE_PATH)
 
 if not wav_folders:
@@ -117,16 +87,13 @@ else:
         print(f"  📁 {folder}")
         print(f"     └─ {count} files\n")
 
-# Select the folder to use (modify if you have multiple)
 if wav_folders:
     DATASET_PATH = wav_folders[0][0]
     print(f"📌 Using dataset from: {DATASET_PATH}\n")
 else:
     raise ValueError("Cannot proceed without dataset!")
 
-# ============================================================================
-# CELL 6: Analyze Dataset Structure
-# ============================================================================
+
 print("=" * 70)
 print("STEP 6: Analyzing Dataset Structure")
 print("=" * 70)
@@ -135,7 +102,7 @@ def get_class_distribution(dataset_path):
     """Get class labels and file counts"""
     class_counts = {}
 
-    # Check if files are organized in class subfolders
+
     try:
         items = os.listdir(dataset_path)
         subdirs = [d for d in items if os.path.isdir(os.path.join(dataset_path, d))]
@@ -144,7 +111,6 @@ def get_class_distribution(dataset_path):
         return class_counts
 
     if subdirs:
-        # Files organized in class folders
         print("Dataset structure: CLASS FOLDERS (organized by subfolder)")
         for class_name in subdirs:
             class_path = os.path.join(dataset_path, class_name)
@@ -156,11 +122,11 @@ def get_class_distribution(dataset_path):
             except:
                 continue
     else:
-        # Files in root folder - extract class from filename
+       
         print("Dataset structure: FLAT (files named with class prefix)")
         wav_files = [f for f in items if f.lower().endswith('.wav')]
         for fname in wav_files:
-            # Assuming format like "on_001.wav" or "fan_002.wav"
+           
             parts = fname.split('_')
             if parts:
                 class_name = parts[0].lower()
@@ -173,8 +139,6 @@ class_counts = get_class_distribution(DATASET_PATH)
 print(f"\n📊 Classes found: {len(class_counts)}\n")
 total_samples = 0
 classes_to_remove = []
-
-# First pass - identify classes to remove
 for cls, count in sorted(class_counts.items()):
     status = ""
     if count < 2:
@@ -185,8 +149,6 @@ for cls, count in sorted(class_counts.items()):
     print(f"  • {cls:10s} : {count:4d} samples{status}")
     if count >= 2:
         total_samples += count
-
-# Remove invalid classes
 if classes_to_remove:
     print(f"\n⚠️  Removing {len(classes_to_remove)} classes with < 2 samples:")
     print(f"   {classes_to_remove}")
@@ -197,8 +159,6 @@ if classes_to_remove:
 else:
     print(f"\n✅ All classes have sufficient samples")
     print(f"   Total samples: {total_samples}")
-
-# Check if we have enough valid classes
 if len(class_counts) < 2:
     raise ValueError(
         f"Not enough valid classes! Found only {len(class_counts)} class(es) with ≥2 samples. "
@@ -215,10 +175,6 @@ else:
     print("✅ Good amount of training data!")
 
 print()
-
-# ============================================================================
-# CELL 7: Define Feature Extraction Function
-# ============================================================================
 print("=" * 70)
 print("STEP 7: Setting Up Feature Extraction")
 print("=" * 70)
@@ -255,9 +211,6 @@ def extract_mfcc(file_path, sr=SAMPLE_RATE, duration=DURATION, n_mfcc=N_MFCC):
 
 print("✅ Feature extraction function ready!\n")
 
-# ============================================================================
-# CELL 8: Load and Process Dataset
-# ============================================================================
 print("=" * 70)
 print("STEP 8: Loading and Processing Audio Files")
 print("=" * 70)
@@ -269,7 +222,6 @@ def load_dataset(dataset_path, valid_classes=None):
     labels = []
     failed_files = []
 
-    # Check dataset structure
     try:
         items = os.listdir(dataset_path)
         subdirs = [d for d in items if os.path.isdir(os.path.join(dataset_path, d))]
@@ -283,7 +235,6 @@ def load_dataset(dataset_path, valid_classes=None):
         for class_name in sorted(subdirs):
             class_name_lower = class_name.lower()
 
-            # Skip classes with too few samples
             if valid_classes and class_name_lower not in valid_classes:
                 print(f"⏭️  Skipping '{class_name}' (too few samples)")
                 continue
@@ -311,7 +262,6 @@ def load_dataset(dataset_path, valid_classes=None):
 
             print(f"✓ ({processed} successful)")
     else:
-        # Files in root - extract class from filename
         print("Processing flat dataset...\n")
         wav_files = [f for f in items if f.lower().endswith('.wav')]
 
@@ -322,7 +272,6 @@ def load_dataset(dataset_path, valid_classes=None):
             file_path = os.path.join(dataset_path, wav_file)
             class_name = wav_file.split('_')[0].lower()
 
-            # Skip classes with too few samples
             if valid_classes and class_name not in valid_classes:
                 continue
 
@@ -341,7 +290,6 @@ def load_dataset(dataset_path, valid_classes=None):
 
     return np.array(features), np.array(labels)
 
-# Load the dataset (only valid classes)
 valid_classes = set(class_counts.keys())
 X, y = load_dataset(DATASET_PATH, valid_classes)
 
@@ -357,11 +305,9 @@ print()
 if len(X) == 0:
     raise ValueError("No features extracted! Check your audio files.")
 
-# Verify class distribution and remove any classes with < 2 samples
 print("Verifying final class distribution:")
 unique, counts = np.unique(y, return_counts=True)
 
-# Find classes that still have < 2 samples
 invalid_classes = []
 for cls, count in zip(unique, counts):
     print(f"  • {cls}: {count} samples", end="")
@@ -371,7 +317,6 @@ for cls, count in zip(unique, counts):
     else:
         print()
 
-# Remove samples from invalid classes
 if invalid_classes:
     print(f"\n⚠️  Removing {len(invalid_classes)} invalid class(es): {invalid_classes}")
     valid_mask = ~np.isin(y, invalid_classes)
@@ -379,13 +324,12 @@ if invalid_classes:
     y = y[valid_mask]
     print(f"✅ Removed invalid samples. Remaining: {len(X)} samples")
 
-    # Re-verify distribution
     print("\nFinal verified distribution:")
     unique, counts = np.unique(y, return_counts=True)
     for cls, count in zip(unique, counts):
         print(f"  • {cls}: {count} samples")
 
-# Final validation
+# validation
 if len(np.unique(y)) < 2:
     raise ValueError(
         f"Not enough valid classes after filtering! Only {len(np.unique(y))} class(es) remain. "
@@ -394,19 +338,15 @@ if len(np.unique(y)) < 2:
 
 print()
 
-# ============================================================================
-# CELL 9: Prepare Data for Training
-# ============================================================================
+
 print("=" * 70)
 print("STEP 9: Preparing Training Data")
 print("=" * 70)
 
-# Encode labels to integers
 label_encoder = LabelEncoder()
 y_encoded = label_encoder.fit_transform(y)
 y_categorical = to_categorical(y_encoded)
 
-# Create label mapping
 label_mapping = {i: label for i, label in enumerate(label_encoder.classes_)}
 
 print("Label Encoding Mapping:")
@@ -414,11 +354,9 @@ for idx, label in label_mapping.items():
     print(f"  {idx} → '{label}'")
 print()
 
-# Check if we have enough samples per class for splitting
 min_samples_per_class = min(np.bincount(y_encoded))
 print(f"Minimum samples per class: {min_samples_per_class}")
 
-# This should never happen now, but keep as safety check
 if min_samples_per_class < 2:
     print("\n❌ CRITICAL ERROR: Found class with < 2 samples after filtering!")
     print("This shouldn't happen. Checking class distribution:")
@@ -429,14 +367,12 @@ if min_samples_per_class < 2:
         f"Data consistency error. Please check your dataset and re-run from the beginning."
     )
 
-# Determine test size based on dataset size
 if len(X) < 50:
-    test_size = 0.15  # Use smaller test set for small datasets
+    test_size = 0.15 
     print(f"⚠️  Small dataset detected, using test_size={test_size}")
 else:
     test_size = 0.2
 
-# Split dataset into train and test
 try:
     X_train, X_test, y_train, y_test = train_test_split(
         X, y_categorical,
@@ -460,9 +396,6 @@ print(f"  • Training samples: {len(X_train)} ({len(X_train)/len(X)*100:.1f}%)"
 print(f"  • Testing samples: {len(X_test)} ({len(X_test)/len(X)*100:.1f}%)")
 print()
 
-# ============================================================================
-# CELL 10: Build Neural Network Model
-# ============================================================================
 print("=" * 70)
 print("STEP 10: Building Neural Network")
 print("=" * 70)
@@ -504,15 +437,11 @@ model.summary()
 print("-" * 70)
 print()
 
-# ============================================================================
-# CELL 11: Train the Model
-# ============================================================================
 print("=" * 70)
 print("STEP 11: Training Model")
 print("=" * 70)
 print("Training in progress... This may take several minutes.\n")
 
-# Early stopping callback
 early_stopping = EarlyStopping(
     monitor='val_loss',
     patience=15,
@@ -561,9 +490,7 @@ else:
 
 print()
 
-# ============================================================================
-# CELL 12: Save Model and Labels
-# ============================================================================
+
 print("=" * 70)
 print("STEP 12: Saving Model Files")
 print("=" * 70)
@@ -579,7 +506,6 @@ with open(LABELS_FILE, 'w') as f:
     json.dump(label_mapping, f, indent=2)
 print(f"✅ Saved labels: {LABELS_FILE}")
 
-# Verify files exist
 if os.path.exists(MODEL_FILE) and os.path.exists(LABELS_FILE):
     print(f"\n✅ Both files ready for download!")
     print(f"  • {MODEL_FILE}: {os.path.getsize(MODEL_FILE)/1024:.2f} KB")
@@ -588,10 +514,6 @@ else:
     print("\n❌ Error: Files not saved properly")
 
 print()
-
-# ============================================================================
-# CELL 13: Download Files
-# ============================================================================
 print("=" * 70)
 print("STEP 13: Downloading Files to Your Computer")
 print("=" * 70)
@@ -618,9 +540,7 @@ except Exception as e:
 
 print()
 
-# ============================================================================
-# FINAL SUMMARY
-# ============================================================================
+
 print("\n" + "=" * 70)
 print("🎉 TRAINING COMPLETE!")
 print("=" * 70)
@@ -637,4 +557,5 @@ print("  4. Run realtime_assistant.py in VS Code")
 print("  5. Start speaking commands!")
 print("\n" + "=" * 70)
 print("Happy voice commanding! 🎙️")
+
 print("=" * 70)
