@@ -1,25 +1,31 @@
-# ============================================================================
-# STREAMLIT VOICE ASSISTANT (HYBRID MODE)
-# ============================================================================
-# ✔ Works Locally (Microphone available)
-# ✔ Works on Streamlit Cloud (Microphone disabled → Upload Mode)
-# ✔ Auto-detects correct loss function for your model
-# ✔ Fixes MFCC shape mismatch errors
-# ✔ Loads your trained model safely
-# ============================================================================
+"""
+============================================================================
+FINAL STREAMLIT VOICE ASSISTANT APP (HYBRID VERSION)
+============================================================================
+✔ Works on Streamlit Cloud (upload mode)
+✔ Works locally (microphone + uploads)
+✔ Auto-detects model and labels
+✔ 100% MFCC-shape safe (always outputs 40)
+✔ No PortAudio crash
+============================================================================
+"""
 
 import streamlit as st
 import numpy as np
 import librosa
 import json
 import os
-import warnings
 from pathlib import Path
+import warnings
 
-warnings.filterwarnings("ignore")
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+# Try microphone recording (local only)
+try:
+    import sounddevice as sd
+    MIC_AVAILABLE = True
+except:
+    MIC_AVAILABLE = False
 
-# Try TensorFlow
+# TensorFlow
 try:
     import tensorflow as tf
     from tensorflow.keras.models import load_model
@@ -27,184 +33,222 @@ try:
 except:
     TF_AVAILABLE = False
 
-# Try microphone library
-try:
-    import sounddevice as sd
-    MIC_AVAILABLE = True
-except:
-    MIC_AVAILABLE = False
+warnings.filterwarnings("ignore")
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 # ============================================================================
-# CONFIG
+# SETTINGS
 # ============================================================================
 SAMPLE_RATE = 16000
-DURATION = 1.0
 N_MFCC = 40
-CONFIDENCE_THRESHOLD = 0.4
+DURATION = 1.0
+CONFIDENCE_THRESHOLD = 0.40
+
+# ============================================================================
+# PAGE CONFIG
+# ============================================================================
+st.set_page_config(
+    page_title="Voice Assistant",
+    page_icon="🎤",
+    layout="centered"
+)
+
+st.title("🎤 Voice Assistant – Final Stable Version")
+st.write("Upload audio or use microphone (local PC only)")
 
 # ============================================================================
 # FIND MODEL FILES
 # ============================================================================
-def find_model_files():
-    model_dir = Path("model")
-    if (model_dir / "voice_model.h5").exists() and (model_dir / "labels.json").exists():
-        return str(model_dir / "voice_model.h5"), str(model_dir / "labels.json")
+@st.cache_resource
+def find_model():
+    """Auto-detect model and labels in ./model/ or root directory."""
+    paths_to_check = [
+        Path("model/voice_model.h5"),
+        Path("voice_model.h5"),
+        Path("model/model.h5")
+    ]
 
-    if Path("voice_model.h5").exists() and Path("labels.json").exists():
-        return "voice_model.h5", "labels.json"
+    label_paths = [
+        Path("model/labels.json"),
+        Path("labels.json")
+    ]
 
-    return None, None
+    model_path = None
+    labels_path = None
 
-# ============================================================================
-# AUTO-DETECT LOSS FUNCTION
-# ============================================================================
-def detect_loss(model):
-    """Detect whether the model expects one-hot or sparse integer labels."""
-    output_shape = model.output_shape
+    for p in paths_to_check:
+        if p.exists():
+            model_path = p
+            break
 
-    # Example shapes:
-    # sparse → (None, num_classes)
-    # categorical → (None, num_classes)
-    # We detect based on final activation AND number of outputs
-    if len(output_shape) == 2 and output_shape[1] >= 2:
-        return "categorical_crossentropy"  # safest for multi-class softmax
+    for p in label_paths:
+        if p.exists():
+            labels_path = p
+            break
 
-    return "sparse_categorical_crossentropy"
+    return model_path, labels_path
+
 
 # ============================================================================
 # LOAD MODEL + LABELS
 # ============================================================================
 @st.cache_resource
-def load_model_data():
-    model_path, labels_path = find_model_files()
+def load_all():
+    model_path, labels_path = find_model()
 
-    if not model_path:
-        st.error("❌ Model files not found! Place voice_model.h5 and labels.json in /model folder.")
+    if model_path is None or labels_path is None:
+        st.error("❌ Model files not found! Place voice_model.h5 and labels.json.")
         return None, None, None, None
 
-    try:
-        model = load_model(model_path, compile=False)
+    model = load_model(model_path, compile=False)
+    model.compile(optimizer="adam", loss="categorical_crossentropy")
 
-        # Auto-detect correct loss
-        loss_used = detect_loss(model)
-        model.compile(optimizer="adam", loss=loss_used)
-        st.success(f"Model loaded using **{loss_used}**")
+    with open(labels_path, "r") as f:
+        raw = json.load(f)
 
-        with open(labels_path, "r") as f:
-            labels = json.load(f)
+    # Ensure correct key:int -> value:str
+    labels = {int(k): v for k, v in raw.items()}
 
-        labels_map = {int(k): v for k, v in labels.items()}
+    # Intent detection
+    INTENT_WORDS = {"on", "off", "start", "stop", "enable", "disable"}
+    intents = [v for v in labels.values() if v.lower() in INTENT_WORDS]
+    devices = [v for v in labels.values() if v.lower() not in INTENT_WORDS]
 
-        # Identify intents/devices
-        intent_tokens = {"on", "off", "start", "stop"}
-        intents = [v for v in labels_map.values() if v.lower() in intent_tokens]
-        devices = [v for v in labels_map.values() if v.lower() not in intent_tokens]
+    return model, labels, intents, devices
 
-        return model, labels_map, intents, devices
-
-    except Exception as e:
-        st.error(f"❌ Model load failed: {e}")
-        return None, None, None, None
 
 # ============================================================================
-# AUDIO PROCESSING
+# SAFE MFCC EXTRACTION (GUARANTEED SHAPE 40)
 # ============================================================================
-def extract_mfcc(audio):
+def extract_mfcc_safe(audio, sr=SAMPLE_RATE):
     try:
-        # Force mono
+        # Stereo -> mono
         if audio.ndim > 1:
             audio = np.mean(audio, axis=1)
 
-        # Force exact length = 1 second
-        target_len = int(SAMPLE_RATE * DURATION)
-        if len(audio) < target_len:
-            audio = np.pad(audio, (0, target_len - len(audio)))
+        # Force exact length = 16000
+        target = int(sr * DURATION)
+        if len(audio) < target:
+            audio = np.pad(audio, (0, target - len(audio)))
         else:
-            audio = audio[:target_len]
+            audio = audio[:target]
 
+        # MFCC extraction
         mfcc = librosa.feature.mfcc(
             y=audio.astype(np.float32),
-            sr=SAMPLE_RATE,
+            sr=sr,
             n_mfcc=N_MFCC
         )
 
+        # Average across time frames
         mfcc = np.mean(mfcc.T, axis=0)
 
-        # Guarantee exact 40 shape
-        if mfcc.shape[0] != N_MFCC:
-            mfcc = np.resize(mfcc, (N_MFCC,))
-
+        # Guarantee shape (40,)
+        mfcc = np.resize(mfcc, (N_MFCC,))
         return mfcc
 
     except Exception as e:
         st.error(f"MFCC extraction failed: {e}")
         return None
 
-def record_mic():
-    audio = sd.rec(int(SAMPLE_RATE * DURATION), samplerate=SAMPLE_RATE, channels=1)
-    sd.wait()
-    return audio.flatten()
 
 # ============================================================================
-# PREDICT
+# PREDICT FUNCTION
 # ============================================================================
-def predict_label(audio, model, labels_map):
-    feat = extract_mfcc(audio)
-    if feat is None:
+def predict_label(model, labels_map, audio_data):
+    mfcc = extract_mfcc_safe(audio_data)
+    if mfcc is None:
         return None, 0.0
 
-    feat = feat.reshape(1, -1)
+    x = mfcc.reshape(1, -1)
 
-    preds = model.predict(feat, verbose=0)[0]
-    idx = int(np.argmax(preds))
-    conf = float(preds[idx])
+    try:
+        preds = model.predict(x, verbose=0)[0]
+        idx = int(np.argmax(preds))
+        conf = float(preds[idx])
+        label = labels_map.get(idx, None)
+        return label, conf
+    except Exception as e:
+        st.error(f"Prediction error: {e}")
+        return None, 0.0
 
-    return labels_map[idx], conf
 
 # ============================================================================
-# UI
+# RECORD AUDIO (LOCAL ONLY)
+# ============================================================================
+def record_audio():
+    if not MIC_AVAILABLE:
+        st.warning("Microphone not available on this platform.")
+        return None
+
+    try:
+        audio = sd.rec(int(SAMPLE_RATE * 1), samplerate=SAMPLE_RATE,
+                       channels=1, dtype="float32")
+        sd.wait()
+        return audio.flatten()
+    except Exception as e:
+        st.error(f"Microphone error: {e}")
+        return None
+
+
+# ============================================================================
+# MAIN APP
 # ============================================================================
 def main():
-    st.title("🎤 Voice Assistant (Hybrid Mode)")
+    st.subheader("📌 Model Status")
+    model, labels_map, intents, devices = load_all()
 
-    model, labels_map, intents, devices = load_model_data()
     if model is None:
         st.stop()
 
-    st.subheader("🧠 Model Classes")
-    st.write("**Intents:**", intents)
-    st.write("**Devices:**", devices)
+    st.success("Model loaded successfully!")
+
+    st.write("### Classes Detected:")
+    st.write(labels_map)
+
+    st.write("---")
+    st.write("## 🎤 Choose Input Method")
+
+    # ===== OPTION 1: MICROPHONE ============
+    if MIC_AVAILABLE:
+        if st.button("🎙️ Record from Microphone (Local Only)"):
+            st.info("Recording...")
+            audio = record_audio()
+            if audio is not None:
+                st.success("Audio recorded!")
+                label, conf = predict_label(model, labels_map, audio)
+                if label:
+                    st.markdown(
+                        f"### ✅ Prediction: **{label.upper()}** ({conf:.0%})")
+    else:
+        st.info("Microphone disabled on Streamlit Cloud.")
 
     st.write("---")
 
-    # LOCAL MODE (Microphone)
-    if MIC_AVAILABLE:
-        st.success("🎤 Microphone detected — local recording enabled")
-        if st.button("Record Audio (1 sec)"):
-            audio = record_mic()
-            label, conf = predict_label(audio, model, labels_map)
+    # ===== OPTION 2: FILE UPLOAD ============
+    uploaded = st.file_uploader("Upload .wav audio file", type=["wav"])
+    if uploaded:
+        st.info("Processing uploaded audio...")
+        audio, _ = librosa.load(uploaded, sr=SAMPLE_RATE, mono=True)
 
-            if conf >= CONFIDENCE_THRESHOLD:
-                st.success(f"Recognized: **{label}** ({conf:.0%})")
-            else:
-                st.error("Low confidence. Try again.")
-
-    # CLOUD MODE (Upload)
-    else:
-        st.warning("⚠ No microphone available — upload mode enabled")
-
-    st.subheader("📤 Upload a WAV File")
-
-    file = st.file_uploader("Upload...", type=["wav"])
-    if file is not None:
-        audio, _ = librosa.load(file, sr=SAMPLE_RATE, mono=True)
-        label, conf = predict_label(audio, model, labels_map)
-
-        if conf >= CONFIDENCE_THRESHOLD:
-            st.success(f"Recognized: **{label}** ({conf:.0%})")
+        # Force exact length again
+        if len(audio) < SAMPLE_RATE:
+            audio = np.pad(audio, (0, SAMPLE_RATE - len(audio)))
         else:
-            st.error("Unable to classify audio")
+            audio = audio[:SAMPLE_RATE]
 
+        label, conf = predict_label(model, labels_map, audio)
+
+        if label:
+            st.success(f"Prediction: **{label.upper()}** ({conf:.0%})")
+        else:
+            st.error("Could not classify this audio.")
+
+    st.write("---")
+    st.write("Done.")
+
+# ============================================================================
 # RUN
+# ============================================================================
 if __name__ == "__main__":
     main()
