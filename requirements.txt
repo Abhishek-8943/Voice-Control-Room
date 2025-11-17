@@ -1,0 +1,9 @@
+streamlit
+tensorflow
+numpy
+librosa
+sounddevice
+soundfile
+scikit-learn
+protobuf
+typing_extensions
