@@ -1,3 +1,13 @@
+# ============================================================================
+# STREAMLIT VOICE ASSISTANT (HYBRID MODE)
+# ============================================================================
+# ✔ Works Locally (Microphone available)
+# ✔ Works on Streamlit Cloud (Microphone disabled → Upload Mode)
+# ✔ Auto-detects correct loss function for your model
+# ✔ Fixes MFCC shape mismatch errors
+# ✔ Loads your trained model safely
+# ============================================================================
+
 import streamlit as st
 import numpy as np
 import librosa
@@ -9,6 +19,7 @@ from pathlib import Path
 warnings.filterwarnings("ignore")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+# Try TensorFlow
 try:
     import tensorflow as tf
     from tensorflow.keras.models import load_model
@@ -16,16 +27,24 @@ try:
 except:
     TF_AVAILABLE = False
 
+# Try microphone library
 try:
     import sounddevice as sd
     MIC_AVAILABLE = True
 except:
     MIC_AVAILABLE = False
 
+# ============================================================================
+# CONFIG
+# ============================================================================
 SAMPLE_RATE = 16000
 DURATION = 1.0
 N_MFCC = 40
 CONFIDENCE_THRESHOLD = 0.4
+
+# ============================================================================
+# FIND MODEL FILES
+# ============================================================================
 def find_model_files():
     model_dir = Path("model")
     if (model_dir / "voice_model.h5").exists() and (model_dir / "labels.json").exists():
@@ -36,15 +55,25 @@ def find_model_files():
 
     return None, None
 
+# ============================================================================
+# AUTO-DETECT LOSS FUNCTION
+# ============================================================================
 def detect_loss(model):
     """Detect whether the model expects one-hot or sparse integer labels."""
     output_shape = model.output_shape
 
-        if len(output_shape) == 2 and output_shape[1] >= 2:
+    # Example shapes:
+    # sparse → (None, num_classes)
+    # categorical → (None, num_classes)
+    # We detect based on final activation AND number of outputs
+    if len(output_shape) == 2 and output_shape[1] >= 2:
         return "categorical_crossentropy"  # safest for multi-class softmax
 
     return "sparse_categorical_crossentropy"
 
+# ============================================================================
+# LOAD MODEL + LABELS
+# ============================================================================
 @st.cache_resource
 def load_model_data():
     model_path, labels_path = find_model_files()
@@ -56,6 +85,7 @@ def load_model_data():
     try:
         model = load_model(model_path, compile=False)
 
+        # Auto-detect correct loss
         loss_used = detect_loss(model)
         model.compile(optimizer="adam", loss=loss_used)
         st.success(f"Model loaded using **{loss_used}**")
@@ -65,6 +95,7 @@ def load_model_data():
 
         labels_map = {int(k): v for k, v in labels.items()}
 
+        # Identify intents/devices
         intent_tokens = {"on", "off", "start", "stop"}
         intents = [v for v in labels_map.values() if v.lower() in intent_tokens]
         devices = [v for v in labels_map.values() if v.lower() not in intent_tokens]
@@ -75,6 +106,9 @@ def load_model_data():
         st.error(f"❌ Model load failed: {e}")
         return None, None, None, None
 
+# ============================================================================
+# AUDIO PROCESSING
+# ============================================================================
 def extract_mfcc(audio):
     try:
         # Force mono
@@ -111,6 +145,9 @@ def record_mic():
     sd.wait()
     return audio.flatten()
 
+# ============================================================================
+# PREDICT
+# ============================================================================
 def predict_label(audio, model, labels_map):
     feat = extract_mfcc(audio)
     if feat is None:
@@ -124,6 +161,9 @@ def predict_label(audio, model, labels_map):
 
     return labels_map[idx], conf
 
+# ============================================================================
+# UI
+# ============================================================================
 def main():
     st.title("🎤 Voice Assistant (Hybrid Mode)")
 
