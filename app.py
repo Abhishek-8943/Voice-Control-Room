@@ -1,13 +1,3 @@
-"""
-============================================================================
-STREAMLIT VOICE ASSISTANT WEB APPLICATION
-============================================================================
-Web-based interface for the voice assistant with ON/OFF button for audio input
-
-Run with: streamlit run app.py
-============================================================================
-"""
-
 import streamlit as st
 import os
 import json
@@ -17,7 +7,6 @@ import librosa
 from pathlib import Path
 import warnings
 
-# Try importing sounddevice (WILL FAIL on Streamlit Cloud)
 try:
     import sounddevice as sd
     MIC_AVAILABLE = True
@@ -25,7 +14,6 @@ except Exception:
     sd = None
     MIC_AVAILABLE = False
 
-# Try importing TensorFlow
 try:
     import tensorflow as tf
     from tensorflow.keras.models import load_model
@@ -37,17 +25,13 @@ except Exception:
 warnings.filterwarnings('ignore')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
+
 SAMPLE_RATE = 16000
 DURATION = 1.0
 N_MFCC = 40
 CONFIDENCE_THRESHOLD = 0.4
 
-# ============================================================================
-# PAGE CONFIGURATION
-# ============================================================================
+
 st.set_page_config(
     page_title="Voice Assistant",
     page_icon="🎤",
@@ -55,9 +39,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ============================================================================
-# CUSTOM CSS
-# ============================================================================
+
 st.markdown("""
     <style>
     .main-header {
@@ -102,9 +84,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
+
 @st.cache_resource
 def find_model_files():
     """Auto-detect model and label files"""
@@ -212,9 +192,7 @@ def predict_label(audio, model, labels_map):
         return None, 0.0
 
 
-# ============================================================================
-# STREAMLIT APP
-# ============================================================================
+
 def main():
     st.markdown("""
         <div class="main-header">
@@ -250,8 +228,6 @@ def main():
         st.success(f"Prediction: {label} ({conf:.2%})")
 
 
-# ============================================================================
-# RUN APP
-# ============================================================================
 if __name__ == "__main__":
     main()
+
